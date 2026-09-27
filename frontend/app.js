@@ -9,6 +9,10 @@ const answer = document.getElementById("answer");
 let cameraStream = null;
 let cameraOn = false;
 
+// The deployed backend URL.
+const BACKEND_URL = "http://127.0.0.1:8000";
+
+
 // CAMERA
 cameraButton.addEventListener("click", async () => {
   if (!cameraOn) {
@@ -23,9 +27,12 @@ cameraButton.addEventListener("click", async () => {
       camera.srcObject = cameraStream;
       cameraOn = true;
       cameraButton.textContent = "Camera Off";
+
     } catch (error) {
+      console.error(error);
       alert("Camera access was not available.");
     }
+
   } else {
     cameraStream.getTracks().forEach((track) => track.stop());
 
@@ -36,6 +43,7 @@ cameraButton.addEventListener("click", async () => {
     cameraButton.textContent = "Camera On";
   }
 });
+
 
 // MICROPHONE / SPEECH TO TEXT
 const SpeechRecognition =
@@ -66,14 +74,19 @@ if (SpeechRecognition) {
     micButton.textContent = "Start Microphone";
   });
 
-  recognition.addEventListener("error", () => {
-    statusText.textContent = "Microphone input was not available.";
+  recognition.addEventListener("error", (event) => {
+    console.error(event);
+
+    statusText.textContent =
+      "Microphone input was not available.";
+
     micButton.textContent = "Start Microphone";
   });
 
   micButton.addEventListener("click", () => {
     recognition.start();
   });
+
 } else {
   micButton.disabled = true;
 
@@ -81,20 +94,89 @@ if (SpeechRecognition) {
     "Speech recognition is not supported in this browser.";
 }
 
+
 // ASK BUTTON
-askButton.addEventListener("click", () => {
-  if (!question.value.trim()) {
+askButton.addEventListener("click", async () => {
+  const userQuestion = question.value.trim();
+
+  if (!userQuestion) {
     answer.textContent = "Please ask a question first.";
     return;
   }
 
-  /*
-    Later, this section would call the python backend
+  answer.textContent = "Thinking...";
 
-    Example:
+  const formData = new FormData();
 
-  */
+  // Add the user's question.
+  formData.append("question", userQuestion);
 
-  answer.textContent =
-    "Your question is ready to be sent to the Gemini backend.";
+
+  // If the camera is on, capture the current frame.
+  if (
+    cameraOn &&
+    camera.videoWidth &&
+    camera.videoHeight
+  ) {
+    const canvas = document.createElement("canvas");
+
+    canvas.width = camera.videoWidth;
+    canvas.height = camera.videoHeight;
+
+    const context = canvas.getContext("2d");
+
+    context.drawImage(
+      camera,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    // Turn the current camera frame into a JPEG image.
+    const imageBlob = await new Promise((resolve) => {
+      canvas.toBlob(
+        resolve,
+        "image/jpeg",
+        0.8
+      );
+    });
+
+    if (imageBlob) {
+      formData.append(
+        "image",
+        imageBlob,
+        "camera.jpg"
+      );
+    }
+  }
+
+
+  // SEND QUESTION + OPTIONAL IMAGE TO BACKEND
+  try {
+    const response = await fetch(
+      `${BACKEND_URL}/api/ask`,
+      {
+        method: "POST",
+        body: formData
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Backend request failed: ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+
+    answer.textContent =
+      data.answer || "The server returned no answer.";
+
+  } catch (error) {
+    console.error(error);
+
+    answer.textContent =
+      "Sorry, something went wrong while contacting the server.";
+  }
 });
