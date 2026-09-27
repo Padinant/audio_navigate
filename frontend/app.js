@@ -1,182 +1,263 @@
-const camera = document.getElementById("camera");
-const cameraButton = document.getElementById("cameraButton");
-const micButton = document.getElementById("micButton");
-const askButton = document.getElementById("askButton");
-const question = document.getElementById("question");
-const statusText = document.getElementById("status");
-const answer = document.getElementById("answer");
-
-let cameraStream = null;
-let cameraOn = false;
-
 // The deployed backend URL.
 const BACKEND_URL = "http://127.0.0.1:8000";
 
+const cameraButton = document.getElementById("cameraButton");
+const micButton = document.getElementById("micButton");
+const video = document.getElementById("camera");
+const questionInput = document.getElementById("question");
+const answerOutput = document.getElementById("answer");
 
-// CAMERA
+// Optional testing controls.
+// These only do anything if matching elements exist in index.html.
+const testImageInput = document.getElementById("testImageInput");
+const testImagePreview = document.getElementById("testImagePreview");
+
+let cameraStream = null;
+let currentTestImage = null;
+
+
+// --------------------
+// Camera
+// --------------------
+
 cameraButton.addEventListener("click", async () => {
-  if (!cameraOn) {
-    try {
-      cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment"
-        },
-        audio: false
-      });
-
-      camera.srcObject = cameraStream;
-      cameraOn = true;
-      cameraButton.textContent = "Camera Off";
-
-    } catch (error) {
-      console.error(error);
-      alert("Camera access was not available.");
+    if (cameraStream) {
+        stopCamera();
+    } else {
+        await startCamera();
     }
-
-  } else {
-    cameraStream.getTracks().forEach((track) => track.stop());
-
-    camera.srcObject = null;
-    cameraStream = null;
-    cameraOn = false;
-
-    cameraButton.textContent = "Camera On";
-  }
 });
 
+async function startCamera() {
+    try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "environment"
+            },
+            audio: false
+        });
 
-// MICROPHONE / SPEECH TO TEXT
-const SpeechRecognition =
-  window.SpeechRecognition || window.webkitSpeechRecognition;
+        video.srcObject = cameraStream;
+        await video.play();
 
-let recognition = null;
+        cameraButton.textContent = "Camera Off";
+    } catch (error) {
+        console.error("Camera error:", error);
+        answerOutput.textContent = "Could not access the camera.";
+    }
+}
 
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
+function stopCamera() {
+    if (!cameraStream) return;
 
-  recognition.lang = "en-US";
-  recognition.interimResults = false;
-  recognition.continuous = false;
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+    video.srcObject = null;
 
-  recognition.addEventListener("start", () => {
-    statusText.textContent = "Listening...";
-    micButton.textContent = "Listening...";
-  });
-
-  recognition.addEventListener("result", (event) => {
-    const transcript = event.results[0][0].transcript;
-
-    question.value = transcript;
-  });
-
-  recognition.addEventListener("end", () => {
-    statusText.textContent = "Microphone is off.";
-    micButton.textContent = "Start Microphone";
-  });
-
-  recognition.addEventListener("error", (event) => {
-    console.error(event);
-
-    statusText.textContent =
-      "Microphone input was not available.";
-
-    micButton.textContent = "Start Microphone";
-  });
-
-  micButton.addEventListener("click", () => {
-    recognition.start();
-  });
-
-} else {
-  micButton.disabled = true;
-
-  statusText.textContent =
-    "Speech recognition is not supported in this browser.";
+    cameraButton.textContent = "Camera On";
 }
 
 
-// ASK BUTTON
-askButton.addEventListener("click", async () => {
-  const userQuestion = question.value.trim();
+// --------------------
+// NEW - TESTING WITH IMAGES 
+// --------------------
+// Note: make sure the index.html file matches!
+// If no test image is selected, the app continues to use the live camera.
 
-  if (!userQuestion) {
-    answer.textContent = "Please ask a question first.";
-    return;
-  }
+if (testImageInput) {
+    testImageInput.addEventListener("change", () => {
+        const file = testImageInput.files?.[0];
 
-  answer.textContent = "Thinking...";
+        if (!file) {
+            currentTestImage = null;
 
-  const formData = new FormData();
+            if (testImagePreview) {
+                testImagePreview.removeAttribute("src");
+            }
 
-  // Add the user's question.
-  formData.append("question", userQuestion);
+            return;
+        }
+
+        currentTestImage = file;
+
+        if (testImagePreview) {
+            testImagePreview.src = URL.createObjectURL(file);
+        }
+    });
+}
 
 
-  // If the camera is on, capture the current frame.
-  if (
-    cameraOn &&
-    camera.videoWidth &&
-    camera.videoHeight
-  ) {
+// --------------------
+// Image capture
+// --------------------
+
+async function getCurrentImageBlob() {
+    // If a test image is selected, use that instead of the camera.
+    if (currentTestImage) {
+        return currentTestImage;
+    }
+
+    // Otherwise capture the current camera frame.
+    if (
+        !cameraStream ||
+        video.videoWidth === 0 ||
+        video.videoHeight === 0
+    ) {
+        return null;
+    }
+
     const canvas = document.createElement("canvas");
 
-    canvas.width = camera.videoWidth;
-    canvas.height = camera.videoHeight;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
     const context = canvas.getContext("2d");
 
     context.drawImage(
-      camera,
-      0,
-      0,
-      canvas.width,
-      canvas.height
+        video,
+        0,
+        0,
+        canvas.width,
+        canvas.height
     );
 
-    // Turn the current camera frame into a JPEG image.
-    const imageBlob = await new Promise((resolve) => {
-      canvas.toBlob(
-        resolve,
-        "image/jpeg",
-        0.8
-      );
+    return new Promise(resolve => {
+        canvas.toBlob(resolve, "image/jpeg", 0.9);
     });
+}
 
-    if (imageBlob) {
-      formData.append(
+
+// --------------------
+// Backend request
+// --------------------
+
+async function askBackend(question) {
+    const imageBlob = await getCurrentImageBlob();
+
+    if (!imageBlob) {
+        answerOutput.textContent =
+            "Turn on the camera or select a test image first.";
+        return;
+    }
+
+    const formData = new FormData();
+
+    // The backend receives either the test image
+    // or the captured camera frame in the same format.
+    formData.append(
         "image",
         imageBlob,
-        "camera.jpg"
-      );
-    }
-  }
-
-
-  // SEND QUESTION + OPTIONAL IMAGE TO BACKEND
-  try {
-    const response = await fetch(
-      `${BACKEND_URL}/api/ask`,
-      {
-        method: "POST",
-        body: formData
-      }
+        "camera-image.jpg"
     );
 
-    if (!response.ok) {
-      throw new Error(
-        `Backend request failed: ${response.status}`
-      );
+    formData.append(
+        "question",
+        question
+    );
+
+    try {
+        answerOutput.textContent = "Processing...";
+
+        const response = await fetch(
+            `${BACKEND_URL}/ask`,
+            {
+                method: "POST",
+                body: formData
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(
+                `Backend returned ${response.status}`
+            );
+        }
+
+        const data = await response.json();
+
+        answerOutput.textContent =
+            data.answer || "No answer was returned.";
+
+    } catch (error) {
+        console.error("Backend error:", error);
+
+        answerOutput.textContent =
+            "There was a problem contacting the backend.";
+    }
+}
+
+
+// --------------------
+// Microphone / speech recognition
+// --------------------
+
+const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+let recognition = null;
+
+if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.addEventListener(
+        "result",
+        async event => {
+            const transcript =
+                event.results[0][0].transcript;
+
+            questionInput.value = transcript;
+
+            await askBackend(transcript);
+        }
+    );
+
+    recognition.addEventListener(
+        "error",
+        event => {
+            console.error(
+                "Speech recognition error:",
+                event.error
+            );
+
+            answerOutput.textContent =
+                "Could not understand the microphone input.";
+        }
+    );
+}
+
+micButton.addEventListener("click", () => {
+    if (!recognition) {
+        answerOutput.textContent =
+            "Speech recognition is not supported in this browser.";
+        return;
     }
 
-    const data = await response.json();
-
-    answer.textContent =
-      data.answer || "The server returned no answer.";
-
-  } catch (error) {
-    console.error(error);
-
-    answer.textContent =
-      "Sorry, something went wrong while contacting the server.";
-  }
+    recognition.start();
 });
+
+
+// --------------------
+// Allow typed questions too
+// --------------------
+
+questionInput.addEventListener(
+    "keydown",
+    async event => {
+        if (event.key !== "Enter") {
+            return;
+        }
+
+        const question =
+            questionInput.value.trim();
+
+        if (!question) {
+            return;
+        }
+
+        await askBackend(question);
+    }
+);
