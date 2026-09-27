@@ -1,0 +1,34 @@
+{
+  "locations": [
+    {
+      "name": "Albin O. Kuhn Library",
+      "notable": true,
+      "description": "UMBC's main library and a central campus landmark.",
+      "visual_clues": [
+        "large multi-story academic building",
+        "prominent library tower",
+        "central campus location"
+      ]
+    },
+    {
+      "name": "The Commons",
+      "notable": true,
+      "description": "A major student center with dining, meeting, and activity spaces.",
+      "visual_clues": [
+        "large student center",
+        "busy pedestrian area",
+        "modern campus architecture"
+      ]
+    },
+    {
+      "name": "Retriever Activities Center",
+      "notable": true,
+      "description": "UMBC's main recreation and athletics facility.",
+      "visual_clues": [
+        "large athletics complex",
+        "sports and recreation entrances",
+        "wide building footprint"
+      ]
+    }
+  ]
+}
